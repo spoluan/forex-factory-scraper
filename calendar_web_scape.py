@@ -85,18 +85,58 @@ def scrape_forexfactory(url, year):
 def scrape_year(year):
     urls = generate_urls_for_year(year=year) 
     all_data = []
-    for url in urls:
+    for url in urls[:]:
         print(f"... retrieve {url}")
         weekly_data = scrape_forexfactory(url, year)
         all_data.extend(weekly_data)
     return all_data
 
-year_start = 2010
-year_end = 2024
+def is_valid_time_format(time_str):
+    try:
+        datetime.datetime.strptime(time_str, "%I:%M%p")
+        return True
+    except ValueError:
+        return False
+
+def is_valid_date(date_str, date_format):
+    try:
+        datetime.datetime.strptime(date_str, date_format)
+        return True
+    except ValueError:
+        return False
+    
+def convert_time(date, time, year):
+    for date_format in ["%Y-%m-%d", "%Y/%m/%d", "%a %b %d"]:
+        try:
+            if date_format == "%a %b %d":
+                if is_valid_date(date + f" {year}", "%a %b %d %Y"): 
+                    parsed_date = datetime.datetime.strptime(date + f" {year}", "%a %b %d %Y")
+                else:
+                    continue
+            else:
+                parsed_date = datetime.datetime.strptime(date, date_format)
+            break
+        except ValueError:
+            continue
+    else:
+        raise ValueError(f"Date format not recognized: {date}")
+        
+    if time.lower() == "all day" or time.lower().startswith("day") or not is_valid_time_format(time):
+        return parsed_date.replace(hour=0, minute=0, second=0)
+    else:
+        parsed_time = datetime.datetime.strptime(time, "%I:%M%p")
+        return parsed_date.replace(hour=parsed_time.hour, minute=parsed_time.minute, second=parsed_time.second)
+    
+year_start = 2012
+year_end = 2024  
 for year in range(year_start, year_end):
     print(f"Start scrawling data for {year}")
     data = scrape_year(year)
     df = pd.DataFrame(data, columns=['Date', 'Time', 'Currency', 'Event', 'Impact', 'Actual', 'Forecast', 'Previous'])
+     
+    # Apply the function to create a new column with combined datetime
+    df['Combined DateTime'] = df.apply(lambda row: convert_time(row['Date'], row['Time'], year), axis=1)
+    df['Combined DateTime'] = df['Combined DateTime'].dt.strftime('%Y-%m-%d %H:%M:%S')
     
     saved_path = os.path.join("datasets")
     if not os.path.exists(saved_path):
