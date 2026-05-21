@@ -4,12 +4,23 @@ Created on Tue Jul 30 16:06:09 2024
 
 @author: SEVENDI ELDRIGE RIFKI POLUAN
 """
- 
+
 from bs4 import BeautifulSoup # pip install beautifulsoup4
 import pandas as pd
-import cloudscraper # pip install cloudscraper 
-import datetime 
+import cloudscraper # pip install cloudscraper
+import datetime
 import os
+import random
+import time
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.4; rv:125.0) Gecko/20100101 Firefox/125.0",
+]
  
 def generate_urls_for_year(year):
     start_date = datetime.date(year, 1, 1)
@@ -48,7 +59,8 @@ def format_date(date_str, year):
     
 def scrape_forexfactory(url, year):
     scraper = cloudscraper.create_scraper()
-    response = scraper.get(url)
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    response = scraper.get(url, headers=headers)
     response.raise_for_status()
     soup = BeautifulSoup(response.text, 'html.parser')
     table = soup.find('table', {'class': 'calendar__table'})
@@ -83,12 +95,41 @@ def scrape_forexfactory(url, year):
     return data
 
 def scrape_year(year):
-    urls = generate_urls_for_year(year=year) 
+    urls = generate_urls_for_year(year=year)
     all_data = []
+    consecutive_failures = 0
+    max_retries = 3
+
     for url in urls[:]:
         print(f"... retrieve {url}")
-        weekly_data = scrape_forexfactory(url, year)
-        all_data.extend(weekly_data)
+
+        if consecutive_failures >= 3:
+            print("3 consecutive week failures — waiting 5 minutes before continuing...")
+            time.sleep(300)
+            consecutive_failures = 0
+
+        success = False
+        for attempt in range(1, max_retries + 1):
+            try:
+                weekly_data = scrape_forexfactory(url, year)
+                all_data.extend(weekly_data)
+                success = True
+                consecutive_failures = 0
+                break
+            except Exception as e:
+                print(f"  Attempt {attempt}/{max_retries} failed for {url}: {e}")
+                if attempt < max_retries:
+                    print(f"  Waiting 30 seconds before retry...")
+                    time.sleep(30)
+
+        if not success:
+            print(f"  Skipping {url} after {max_retries} failed attempts.")
+            consecutive_failures += 1
+
+        delay = random.uniform(3, 8)
+        print(f"  Sleeping {delay:.1f}s before next request...")
+        time.sleep(delay)
+
     return all_data
 
 def is_valid_time_format(time_str):
@@ -127,8 +168,8 @@ def convert_time(date, time, year):
         parsed_time = datetime.datetime.strptime(time, "%I:%M%p")
         return parsed_date.replace(hour=parsed_time.hour, minute=parsed_time.minute, second=parsed_time.second)
     
-year_start = 2012
-year_end = 2024  
+year_start = 2007
+year_end = 2027  
 for year in range(year_start, year_end):
     print(f"Start scrawling data for {year}")
     data = scrape_year(year)
